@@ -10,6 +10,7 @@ def test_init_creates_metrics_table(temp_db):
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM metrics")
+        cursor.execute("SELECT * FROM runs")
 
 
 def test_log_and_get_metrics(temp_db):
@@ -29,3 +30,10 @@ def test_get_projects_and_runs(temp_db):
     assert {"proj1", "proj2"}.issubset(projects)
     runs = set(SQLiteStorage.get_runs("proj1"))
     assert "run1" in runs
+
+
+def test_set_and_get_run_color(temp_db):
+    SQLiteStorage.log(project="proj1", run="run1", metrics={"a": 1})
+    SQLiteStorage.set_run_color("proj1", "run1", "#FFFFFF")
+    color = SQLiteStorage.get_run_color("proj1", "run1")
+    assert color == "#FFFFFF"

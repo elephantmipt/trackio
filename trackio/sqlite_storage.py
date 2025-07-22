@@ -85,6 +85,14 @@ class SQLiteStorage:
                     ON metrics(run_name, step)
                     """
                 )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS runs (
+                        run_name TEXT PRIMARY KEY,
+                        color TEXT
+                    )
+                    """
+                )
                 conn.commit()
         return db_path
 
@@ -141,6 +149,11 @@ class SQLiteStorage:
                 current_timestamp = datetime.now().isoformat()
 
                 cursor.execute(
+                    "INSERT OR IGNORE INTO runs (run_name) VALUES (?)",
+                    (run,),
+                )
+
+                cursor.execute(
                     """
                     INSERT INTO metrics
                     (timestamp, run_name, step, metrics)
@@ -182,6 +195,11 @@ class SQLiteStorage:
         with SQLiteStorage.get_scheduler().lock:
             with SQLiteStorage._get_connection(db_path) as conn:
                 cursor = conn.cursor()
+
+                cursor.execute(
+                    "INSERT OR IGNORE INTO runs (run_name) VALUES (?)",
+                    (run,),
+                )
 
                 data = []
                 for i, metrics in enumerate(metrics_list):
@@ -260,6 +278,40 @@ class SQLiteStorage:
                 "SELECT DISTINCT run_name FROM metrics",
             )
             return [row[0] for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_run_color(project: str, run: str) -> str | None:
+        """Return the stored color for a run, if any."""
+        db_path = SQLiteStorage.get_project_db_path(project)
+        if not db_path.exists():
+            return None
+
+        with SQLiteStorage._get_connection(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT color FROM runs WHERE run_name = ?",
+                (run,),
+            )
+            row = cursor.fetchone()
+            return row["color"] if row and row["color"] is not None else None
+
+    @staticmethod
+    def set_run_color(project: str, run: str, color: str) -> None:
+        """Persist a color for the given run."""
+        db_path = SQLiteStorage.get_project_db_path(project)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with SQLiteStorage._get_connection(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO runs (run_name, color)
+                VALUES (?, ?)
+                ON CONFLICT(run_name) DO UPDATE SET color=excluded.color
+                """,
+                (run, color),
+            )
+            conn.commit()
 
     @staticmethod
     def get_max_steps_for_runs(project: str, runs: list[str]) -> dict[str, int]:

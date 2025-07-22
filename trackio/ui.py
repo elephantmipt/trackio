@@ -15,10 +15,17 @@ try:
         TRACKIO_LOGO_PATH,
         downsample,
         get_color_mapping,
+        COLOR_PALETTE,
     )
 except:  # noqa: E722
     from sqlite_storage import SQLiteStorage
-    from utils import RESERVED_KEYS, TRACKIO_LOGO_PATH, downsample, get_color_mapping
+    from utils import (
+        RESERVED_KEYS,
+        TRACKIO_LOGO_PATH,
+        downsample,
+        get_color_mapping,
+        COLOR_PALETTE,
+    )
 
 css = """
 #run-cb .wrap {
@@ -343,6 +350,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         run_cb = gr.CheckboxGroup(
             label="Runs", choices=[], interactive=True, elem_id="run-cb"
         )
+        run_colors = gr.Row()
         gr.HTML("<hr>")
         realtime_cb = gr.Checkbox(label="Refresh metrics realtime", value=True)
         smoothing_method_dd = gr.Dropdown(
@@ -417,6 +425,32 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         inputs=[project_dd, run_tb],
         outputs=run_cb,
     )
+
+    @gr.render(
+        triggers=[demo.load, project_dd.change, run_cb.change],
+        inputs=[project_dd, run_cb],
+        show_progress="hidden",
+    )
+    def update_run_colors(project, runs):
+        with run_colors:
+            for i, run in enumerate(runs):
+                current_color = SQLiteStorage.get_run_color(project, run)
+                if current_color is None:
+                    current_color = COLOR_PALETTE[i % len(COLOR_PALETTE)]
+                    SQLiteStorage.set_run_color(project, run, current_color)
+                dd = gr.Dropdown(
+                    label=run,
+                    choices=COLOR_PALETTE,
+                    value=current_color,
+                    interactive=True,
+                    key=f"color-{run}",
+                )
+
+                dd.change(
+                    lambda color, project=project, run=run: SQLiteStorage.set_run_color(project, run, color),
+                    inputs=dd,
+                    outputs=None,
+                )
 
     gr.api(
         fn=upload_db_to_space,
@@ -503,7 +537,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
             numeric_cols = [c for c in numeric_cols if c in metrics_subset]
 
         numeric_cols = sort_metrics_by_prefix(list(numeric_cols))
-        color_map = get_color_mapping(original_runs, smoothing_method != "None")
+        color_map = get_color_mapping(project, original_runs, smoothing_method != "None")
 
         with gr.Row(key="row"):
             for metric_idx, metric_name in enumerate(numeric_cols):

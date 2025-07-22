@@ -296,17 +296,22 @@ COLOR_PALETTE = [
     "#EC4899",
     "#06B6D4",
     "#84CC16",
-    "#F97316",
-    "#6366F1",
 ]
 
 
-def get_color_mapping(runs: list[str], smoothing: bool) -> dict[str, str]:
-    """Generate color mapping for runs, with transparency for original data when smoothing is enabled."""
+def get_color_mapping(project: str, runs: list[str], smoothing: bool) -> dict[str, str]:
+    """Generate color mapping for runs with persistence in the database."""
+    from trackio.sqlite_storage import SQLiteStorage
+
     color_map = {}
 
     for i, run in enumerate(runs):
-        base_color = COLOR_PALETTE[i % len(COLOR_PALETTE)]
+        stored_color = SQLiteStorage.get_run_color(project, run)
+        if stored_color is None:
+            stored_color = COLOR_PALETTE[i % len(COLOR_PALETTE)]
+            SQLiteStorage.set_run_color(project, run, stored_color)
+
+        base_color = stored_color
 
         if smoothing:
             color_map[f"{run}_smoothed"] = base_color
