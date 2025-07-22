@@ -25,7 +25,10 @@ def deploy_as_space(
     ):  # in case a repo with this function is uploaded to spaces
         return
 
-    trackio_path = files("trackio")
+    try:
+        trackio_path = files("trackio")
+    except ModuleNotFoundError:
+        trackio_path = Path(__file__).parent
 
     hf_api = huggingface_hub.HfApi()
 

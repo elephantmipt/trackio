@@ -11,20 +11,20 @@ HfApi = hf.HfApi()
 try:
     from trackio.sqlite_storage import SQLiteStorage
     from trackio.utils import (
+        COLOR_PALETTE,
         RESERVED_KEYS,
         TRACKIO_LOGO_PATH,
         downsample,
         get_color_mapping,
-        COLOR_PALETTE,
     )
 except:  # noqa: E722
     from sqlite_storage import SQLiteStorage
     from utils import (
+        COLOR_PALETTE,
         RESERVED_KEYS,
         TRACKIO_LOGO_PATH,
         downsample,
         get_color_mapping,
-        COLOR_PALETTE,
     )
 
 css = """
