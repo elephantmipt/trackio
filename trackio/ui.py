@@ -131,7 +131,8 @@ def load_run_data(
                 .mean()
             )
         elif smoothing_method == "EMA":
-            alpha = max(0.0, min(1.0, float(smoothing_value)))
+            alpha = 1.0 - float(smoothing_value)
+            alpha = max(0.0, min(1.0, alpha))
             df_smoothed[numeric_cols] = (
                 df_smoothed[numeric_cols]
                 .ewm(alpha=alpha, adjust=False)
@@ -208,7 +209,7 @@ def toggle_smoothing_slider(method: str):
             minimum=0.0,
             maximum=1.0,
             step=0.01,
-            value=0.5,
+            value=0.0,
         )
     return gr.update(interactive=False, label="Smoothing parameter")
 
