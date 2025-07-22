@@ -530,6 +530,15 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
                     lambda: None, outputs=x_lim, key=f"double-{metric_idx}"
                 )
 
+    gr.HTML(
+        """
+        <a class='weatherwidget-io' href='https://forecast7.com/ru/60d0830d12/saint-petersburg/' data-label_1='Санкт-Петербург' data-label_2='ПОГОДА' data-theme='original'>Санкт-Петербург ПОГОДА</a>
+        <script>
+        !function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0];if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src='https://weatherwidget.io/js/widget.min.js';fjs.parentNode.insertBefore(js,fjs);}}(document,'script','weatherwidget-io-js');
+        </script>
+        """
+    )
+
 
 if __name__ == "__main__":
     demo.launch(allowed_paths=[TRACKIO_LOGO_PATH], show_api=False, show_error=True)
