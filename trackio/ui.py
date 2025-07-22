@@ -87,7 +87,13 @@ def get_available_metrics(project: str, runs: list[str]) -> list[str]:
     return result
 
 
-def load_run_data(project: str | None, run: str | None, smoothing: bool, x_axis: str):
+def load_run_data(
+    project: str | None,
+    run: str | None,
+    smoothing_method: str,
+    smoothing_value: float,
+    x_axis: str,
+) -> pd.DataFrame | None:
     if not project or not run:
         return None
     metrics = SQLiteStorage.get_metrics(project, run)
@@ -108,7 +114,7 @@ def load_run_data(project: str | None, run: str | None, smoothing: bool, x_axis:
     else:
         x_column = x_axis
 
-    if smoothing:
+    if smoothing_method != "None":
         numeric_cols = df.select_dtypes(include="number").columns
         numeric_cols = [c for c in numeric_cols if c not in RESERVED_KEYS]
 
@@ -117,23 +123,32 @@ def load_run_data(project: str | None, run: str | None, smoothing: bool, x_axis:
         df_original["data_type"] = "original"
 
         df_smoothed = df.copy()
-        window_size = max(3, min(10, len(df) // 10))  # Adaptive window size
-        df_smoothed[numeric_cols] = (
-            df_smoothed[numeric_cols]
-            .rolling(window=window_size, center=True, min_periods=1)
-            .mean()
-        )
+        if smoothing_method == "SMA":
+            window_size = max(1, int(smoothing_value))
+            df_smoothed[numeric_cols] = (
+                df_smoothed[numeric_cols]
+                .rolling(window=window_size, center=True, min_periods=1)
+                .mean()
+            )
+        elif smoothing_method == "EMA":
+            alpha = max(0.0, min(1.0, float(smoothing_value)))
+            df_smoothed[numeric_cols] = (
+                df_smoothed[numeric_cols]
+                .ewm(alpha=alpha, adjust=False)
+                .mean()
+            )
+        else:
+            df_smoothed = df_original.copy()
         df_smoothed["run"] = f"{run}_smoothed"
         df_smoothed["data_type"] = "smoothed"
 
         combined_df = pd.concat([df_original, df_smoothed], ignore_index=True)
         combined_df["x_axis"] = x_column
         return combined_df
-    else:
-        df["run"] = run
-        df["data_type"] = "original"
-        df["x_axis"] = x_column
-        return df
+    df["run"] = run
+    df["data_type"] = "original"
+    df["x_axis"] = x_column
+    return df
 
 
 def update_runs(project, filter_text, user_interacted_with_runs=False):
@@ -174,6 +189,28 @@ def toggle_timer(cb_value):
         return gr.Timer(active=True)
     else:
         return gr.Timer(active=False)
+
+
+def toggle_smoothing_slider(method: str):
+    if method == "SMA":
+        return gr.update(
+            interactive=True,
+            label="SMA window",
+            minimum=1,
+            maximum=100,
+            step=1,
+            value=10,
+        )
+    if method == "EMA":
+        return gr.update(
+            interactive=True,
+            label="EMA alpha",
+            minimum=0.0,
+            maximum=1.0,
+            step=0.01,
+            value=0.5,
+        )
+    return gr.update(interactive=False, label="Smoothing parameter")
 
 
 def check_auth(hf_token: str | None) -> None:
@@ -308,7 +345,19 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         )
         gr.HTML("<hr>")
         realtime_cb = gr.Checkbox(label="Refresh metrics realtime", value=True)
-        smoothing_cb = gr.Checkbox(label="Smooth metrics", value=True)
+        smoothing_method_dd = gr.Dropdown(
+            label="Smoothing",
+            choices=["None", "SMA", "EMA"],
+            value="None",
+        )
+        smoothing_slider = gr.Slider(
+            label="Smoothing parameter",
+            minimum=1,
+            maximum=100,
+            step=1,
+            value=10,
+            interactive=False,
+        )
         x_axis_dd = gr.Dropdown(
             label="X-axis",
             choices=["step", "time"],
@@ -354,6 +403,11 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         outputs=timer,
         api_name="toggle_timer",
     )
+    smoothing_method_dd.change(
+        fn=toggle_smoothing_slider,
+        inputs=smoothing_method_dd,
+        outputs=smoothing_slider,
+    )
     run_cb.input(
         fn=lambda: True,
         outputs=user_interacted_with_run_cb,
@@ -398,19 +452,36 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
             demo.load,
             run_cb.change,
             last_steps.change,
-            smoothing_cb.change,
+            smoothing_method_dd.change,
+            smoothing_slider.change,
             x_lim.change,
             x_axis_dd.change,
         ],
-        inputs=[project_dd, run_cb, smoothing_cb, metrics_subset, x_lim, x_axis_dd],
+        inputs=[
+            project_dd,
+            run_cb,
+            smoothing_method_dd,
+            smoothing_slider,
+            metrics_subset,
+            x_lim,
+            x_axis_dd,
+        ],
         show_progress="hidden",
     )
-    def update_dashboard(project, runs, smoothing, metrics_subset, x_lim_value, x_axis):
+    def update_dashboard(
+        project,
+        runs,
+        smoothing_method,
+        smoothing_value,
+        metrics_subset,
+        x_lim_value,
+        x_axis,
+    ):
         dfs = []
         original_runs = runs.copy()
 
         for run in runs:
-            df = load_run_data(project, run, smoothing, x_axis)
+            df = load_run_data(project, run, smoothing_method, smoothing_value, x_axis)
             if df is not None:
                 dfs.append(df)
 
@@ -432,7 +503,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
             numeric_cols = [c for c in numeric_cols if c in metrics_subset]
 
         numeric_cols = sort_metrics_by_prefix(list(numeric_cols))
-        color_map = get_color_mapping(original_runs, smoothing)
+        color_map = get_color_mapping(original_runs, smoothing_method != "None")
 
         with gr.Row(key="row"):
             for metric_idx, metric_name in enumerate(numeric_cols):
