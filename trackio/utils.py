@@ -301,7 +301,10 @@ COLOR_PALETTE = [
 
 def get_color_mapping(project: str, runs: list[str], smoothing: bool) -> dict[str, str]:
     """Generate color mapping for runs with persistence in the database."""
-    from trackio.sqlite_storage import SQLiteStorage
+    try:
+        from trackio.sqlite_storage import SQLiteStorage
+    except:
+        from sqlite_storage import SQLiteStorage
 
     color_map = {}
 
