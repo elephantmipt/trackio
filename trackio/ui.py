@@ -148,7 +148,7 @@ def load_run_data(
     return df
 
 
-def update_runs(project, filter_text, visible_runs, user_interacted_with_runs=False):
+def update_runs(project, filter_text, visible_runs_value, user_interacted_with_runs=False):
     if project is None:
         runs = []
         num_runs = 0
@@ -161,7 +161,7 @@ def update_runs(project, filter_text, visible_runs, user_interacted_with_runs=Fa
     if not user_interacted_with_runs:
         updated_visible = runs
     else:
-        updated_visible = [r for r in visible_runs if r in runs]
+        updated_visible = [r for r in visible_runs_value if r in runs]
 
     with run_list:
         for i, run in enumerate(runs):
