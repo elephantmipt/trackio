@@ -27,15 +27,7 @@ except:  # noqa: E722
         get_color_mapping,
     )
 
-css = """
-#run-cb .wrap {
-    gap: 2px;
-}
-#run-cb .wrap label {
-    line-height: 1;
-    padding: 6px;
-}
-"""
+css = ""
 
 
 def get_projects(request: gr.Request):
@@ -140,9 +132,7 @@ def load_run_data(
         elif smoothing_method == "EMA":
             alpha = max(0.0, min(1.0, float(smoothing_value)))
             df_smoothed[numeric_cols] = (
-                df_smoothed[numeric_cols]
-                .ewm(alpha=alpha, adjust=False)
-                .mean()
+                df_smoothed[numeric_cols].ewm(alpha=alpha, adjust=False).mean()
             )
         else:
             df_smoothed = df_original.copy()
@@ -158,7 +148,7 @@ def load_run_data(
     return df
 
 
-def update_runs(project, filter_text, user_interacted_with_runs=False):
+def update_runs(project, filter_text, visible_runs_value, user_interacted_with_runs=False):
     if project is None:
         runs = []
         num_runs = 0
@@ -167,18 +157,47 @@ def update_runs(project, filter_text, user_interacted_with_runs=False):
         num_runs = len(runs)
         if filter_text:
             runs = [r for r in runs if filter_text in r]
+
     if not user_interacted_with_runs:
-        return gr.CheckboxGroup(choices=runs, value=runs), gr.Textbox(
-            label=f"Runs ({num_runs})"
-        )
+        updated_visible = runs
     else:
-        return gr.CheckboxGroup(choices=runs), gr.Textbox(label=f"Runs ({num_runs})")
+        updated_visible = [r for r in visible_runs_value if r in runs]
+
+    with run_list:
+        for i, run in enumerate(runs):
+            current_color = SQLiteStorage.get_run_color(project, run)
+            if current_color is None:
+                current_color = COLOR_PALETTE[i % len(COLOR_PALETTE)]
+                SQLiteStorage.set_run_color(project, run, current_color)
+
+            is_visible = run in updated_visible
+            cb = gr.Checkbox(value=is_visible, label=run, key=f"vis-{run}")
+            cb.change(
+                lambda checked, lst, run=run: update_visible_runs(checked, run, lst),
+                inputs=[cb, visible_runs],
+                outputs=visible_runs,
+            )
+            cb.change(lambda: True, inputs=None, outputs=user_interacted_with_run_cb)
+
+            dd = gr.Dropdown(
+                label="Color",
+                choices=COLOR_PALETTE,
+                value=current_color,
+                interactive=True,
+                key=f"color-{run}",
+            )
+            dd.change(
+                lambda color, project=project, run=run: SQLiteStorage.set_run_color(
+                    project, run, color
+                ),
+                inputs=dd,
+                outputs=None,
+            )
+
+    run_tb.label = f"Runs ({num_runs})"
+    visible_runs.value = updated_visible
 
 
-def filter_runs(project, filter_text):
-    runs = get_runs(project)
-    runs = [r for r in runs if filter_text in r]
-    return gr.CheckboxGroup(choices=runs, value=runs)
 
 
 def update_x_axis_choices(project, runs):
@@ -218,6 +237,15 @@ def toggle_smoothing_slider(method: str):
             value=0.5,
         )
     return gr.update(interactive=False, label="Smoothing parameter")
+
+
+def update_visible_runs(checked: bool, run: str, current: list[str]):
+    updated = current.copy()
+    if checked and run not in updated:
+        updated.append(run)
+    elif not checked and run in updated:
+        updated.remove(run)
+    return updated
 
 
 def check_auth(hf_token: str | None) -> None:
@@ -347,10 +375,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         )
         project_dd = gr.Dropdown(label="Project", allow_custom_value=True)
         run_tb = gr.Textbox(label="Runs", placeholder="Type to filter...")
-        run_cb = gr.CheckboxGroup(
-            label="Runs", choices=[], interactive=True, elem_id="run-cb"
-        )
-        run_colors = gr.Row()
+        run_list = gr.Column()
         gr.HTML("<hr>")
         realtime_cb = gr.Checkbox(label="Refresh metrics realtime", value=True)
         smoothing_method_dd = gr.Dropdown(
@@ -375,6 +400,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
     timer = gr.Timer(value=1)
     metrics_subset = gr.State([])
     user_interacted_with_run_cb = gr.State(False)
+    visible_runs = gr.State([])
 
     gr.on([demo.load], fn=configure, outputs=[metrics_subset, sidebar])
     gr.on(
@@ -383,24 +409,23 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         outputs=project_dd,
         show_progress="hidden",
     )
-    gr.on(
-        [timer.tick],
-        fn=update_runs,
-        inputs=[project_dd, run_tb, user_interacted_with_run_cb],
-        outputs=[run_cb, run_tb],
+    @gr.render(
+        triggers=[
+            demo.load,
+            project_dd.change,
+            timer.tick,
+            run_tb.input,
+        ],
+        inputs=[project_dd, run_tb, visible_runs, user_interacted_with_run_cb],
         show_progress="hidden",
     )
+    def _render_runs(project, filter_text, runs_state, user_interacted):
+        return update_runs(project, filter_text, runs_state, user_interacted)
+
     gr.on(
-        [demo.load, project_dd.change],
-        fn=update_runs,
-        inputs=[project_dd, run_tb],
-        outputs=[run_cb, run_tb],
-        show_progress="hidden",
-    )
-    gr.on(
-        [demo.load, project_dd.change, run_cb.change],
+        [demo.load, project_dd.change, visible_runs.change],
         fn=update_x_axis_choices,
-        inputs=[project_dd, run_cb],
+        inputs=[project_dd, visible_runs],
         outputs=x_axis_dd,
         show_progress="hidden",
     )
@@ -416,41 +441,6 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         inputs=smoothing_method_dd,
         outputs=smoothing_slider,
     )
-    run_cb.input(
-        fn=lambda: True,
-        outputs=user_interacted_with_run_cb,
-    )
-    run_tb.input(
-        fn=filter_runs,
-        inputs=[project_dd, run_tb],
-        outputs=run_cb,
-    )
-
-    @gr.render(
-        triggers=[demo.load, project_dd.change, run_cb.change],
-        inputs=[project_dd, run_cb],
-        show_progress="hidden",
-    )
-    def update_run_colors(project, runs):
-        with run_colors:
-            for i, run in enumerate(runs):
-                current_color = SQLiteStorage.get_run_color(project, run)
-                if current_color is None:
-                    current_color = COLOR_PALETTE[i % len(COLOR_PALETTE)]
-                    SQLiteStorage.set_run_color(project, run, current_color)
-                dd = gr.Dropdown(
-                    label=run,
-                    choices=COLOR_PALETTE,
-                    value=current_color,
-                    interactive=True,
-                    key=f"color-{run}",
-                )
-
-                dd.change(
-                    lambda color, project=project, run=run: SQLiteStorage.set_run_color(project, run, color),
-                    inputs=dd,
-                    outputs=None,
-                )
 
     gr.api(
         fn=upload_db_to_space,
@@ -476,7 +466,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
 
     timer.tick(
         fn=update_last_steps,
-        inputs=[project_dd, run_cb],
+        inputs=[project_dd, visible_runs],
         outputs=last_steps,
         show_progress="hidden",
     )
@@ -484,7 +474,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
     @gr.render(
         triggers=[
             demo.load,
-            run_cb.change,
+            visible_runs.change,
             last_steps.change,
             smoothing_method_dd.change,
             smoothing_slider.change,
@@ -493,7 +483,7 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         ],
         inputs=[
             project_dd,
-            run_cb,
+            visible_runs,
             smoothing_method_dd,
             smoothing_slider,
             metrics_subset,
@@ -537,7 +527,9 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
             numeric_cols = [c for c in numeric_cols if c in metrics_subset]
 
         numeric_cols = sort_metrics_by_prefix(list(numeric_cols))
-        color_map = get_color_mapping(project, original_runs, smoothing_method != "None")
+        color_map = get_color_mapping(
+            project, original_runs, smoothing_method != "None"
+        )
 
         with gr.Row(key="row"):
             for metric_idx, metric_name in enumerate(numeric_cols):
