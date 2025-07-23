@@ -194,8 +194,10 @@ def update_runs(project, filter_text, visible_runs, user_interacted_with_runs=Fa
                 outputs=None,
             )
 
-    run_tb.render(label=f"Runs ({num_runs})")
-    visible_runs.render(updated_visible)
+    run_tb.label = f"Runs ({num_runs})"
+    run_tb.render()
+    visible_runs.value = updated_visible
+    visible_runs.render()
 
 
 
