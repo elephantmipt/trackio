@@ -159,18 +159,18 @@ def update_runs(project, filter_text, visible_runs, user_interacted_with_runs=Fa
             runs = [r for r in runs if filter_text in r]
 
     if not user_interacted_with_runs:
-        visible_runs = runs
+        updated_visible = runs
     else:
-        visible_runs = [r for r in visible_runs if r in runs]
+        updated_visible = [r for r in visible_runs if r in runs]
 
-    with gr.Column() as run_list:
+    with run_list:
         for i, run in enumerate(runs):
             current_color = SQLiteStorage.get_run_color(project, run)
             if current_color is None:
                 current_color = COLOR_PALETTE[i % len(COLOR_PALETTE)]
                 SQLiteStorage.set_run_color(project, run, current_color)
 
-            is_visible = run in visible_runs
+            is_visible = run in updated_visible
             cb = gr.Checkbox(value=is_visible, label=run, key=f"vis-{run}")
             cb.change(
                 lambda checked, lst, run=run: update_visible_runs(checked, run, lst),
@@ -194,16 +194,10 @@ def update_runs(project, filter_text, visible_runs, user_interacted_with_runs=Fa
                 outputs=None,
             )
 
-    return run_list, gr.Textbox(label=f"Runs ({num_runs})"), visible_runs
+    run_tb.render(label=f"Runs ({num_runs})")
+    visible_runs.render(updated_visible)
 
 
-def filter_runs(project, filter_text, visible_runs):
-    return update_runs(
-        project,
-        filter_text,
-        visible_runs,
-        user_interacted_with_runs=True,
-    )
 
 
 def update_x_axis_choices(project, runs):
@@ -415,20 +409,19 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         outputs=project_dd,
         show_progress="hidden",
     )
-    gr.on(
-        [timer.tick],
-        fn=update_runs,
+    @gr.render(
+        triggers=[
+            demo.load,
+            project_dd.change,
+            timer.tick,
+            run_tb.input,
+        ],
         inputs=[project_dd, run_tb, visible_runs, user_interacted_with_run_cb],
-        outputs=[run_list, run_tb, visible_runs],
         show_progress="hidden",
     )
-    gr.on(
-        [demo.load, project_dd.change],
-        fn=update_runs,
-        inputs=[project_dd, run_tb, visible_runs, user_interacted_with_run_cb],
-        outputs=[run_list, run_tb, visible_runs],
-        show_progress="hidden",
-    )
+    def _render_runs(project, filter_text, runs_state, user_interacted):
+        return update_runs(project, filter_text, runs_state, user_interacted)
+
     gr.on(
         [demo.load, project_dd.change, visible_runs.change],
         fn=update_x_axis_choices,
@@ -447,11 +440,6 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         fn=toggle_smoothing_slider,
         inputs=smoothing_method_dd,
         outputs=smoothing_slider,
-    )
-    run_tb.input(
-        fn=filter_runs,
-        inputs=[project_dd, run_tb, visible_runs],
-        outputs=[run_list, visible_runs],
     )
 
     gr.api(
