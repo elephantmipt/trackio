@@ -13,12 +13,19 @@ try:
     from trackio.utils import (
         RESERVED_KEYS,
         TRACKIO_LOGO_PATH,
+        TRACKIO_DIR,
         downsample,
         get_color_mapping,
     )
 except:  # noqa: E722
     from sqlite_storage import SQLiteStorage
-    from utils import RESERVED_KEYS, TRACKIO_LOGO_PATH, downsample, get_color_mapping
+    from utils import (
+        RESERVED_KEYS,
+        TRACKIO_LOGO_PATH,
+        TRACKIO_DIR,
+        downsample,
+        get_color_mapping,
+    )
 
 css = """
 #run-cb .wrap {
@@ -134,9 +141,7 @@ def load_run_data(
             alpha = 1.0 - float(smoothing_value)
             alpha = max(0.0, min(1.0, alpha))
             df_smoothed[numeric_cols] = (
-                df_smoothed[numeric_cols]
-                .ewm(alpha=alpha, adjust=False)
-                .mean()
+                df_smoothed[numeric_cols].ewm(alpha=alpha, adjust=False).mean()
             )
         else:
             df_smoothed = df_original.copy()
@@ -284,6 +289,16 @@ def log(
     SQLiteStorage.log(project=project, run=run, metrics=metrics)
 
 
+def log_image(
+    project: str,
+    run: str,
+    image_path: str,
+    hf_token: str | None,
+) -> None:
+    check_auth(hf_token)
+    SQLiteStorage.log_image(project=project, run=run, image_path=image_path)
+
+
 def sort_metrics_by_prefix(metrics: list[str]) -> list[str]:
     """
     Sort metrics by grouping prefixes together.
@@ -427,6 +442,13 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         fn=log,
         api_name="log",
     )
+    gr.api(
+        fn=log_image,
+        api_name="log_image",
+    )
+
+    image_step = gr.Slider(label="Image step", minimum=0, maximum=0, step=1, value=0)
+    image_gallery = gr.Gallery(label="Images", columns=4)
 
     x_lim = gr.State(None)
     last_steps = gr.State({})
@@ -445,6 +467,35 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
         fn=update_last_steps,
         inputs=[project_dd, run_cb],
         outputs=last_steps,
+        show_progress="hidden",
+    )
+
+    def update_gallery(project, runs, step):
+        if not project or not runs:
+            return [], gr.update(value=0, maximum=0)
+
+        images = []
+        max_step = 0
+        for run in runs:
+            rows = SQLiteStorage.get_images(project, run)
+            if rows:
+                max_step = max(max_step, rows[-1]["step"])
+            for row in rows:
+                if row["step"] == step:
+                    img_path = TRACKIO_DIR / row["image_path"]
+                    caption = f"{run} step {row['step']}"
+                    images.append((row["timestamp"], (str(img_path), caption)))
+                    break
+
+        images.sort(key=lambda x: x[0])
+        step = min(step, max_step)
+        return [img for _, img in images], gr.update(value=step, maximum=max_step)
+
+    gr.on(
+        [demo.load, run_cb.change, last_steps.change, image_step.change],
+        fn=update_gallery,
+        inputs=[project_dd, run_cb, image_step],
+        outputs=[image_gallery, image_step],
         show_progress="hidden",
     )
 
@@ -542,4 +593,8 @@ with gr.Blocks(theme="citrus", title="Trackio Dashboard", css=css) as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(allowed_paths=[TRACKIO_LOGO_PATH], show_api=False, show_error=True)
+    demo.launch(
+        allowed_paths=[TRACKIO_LOGO_PATH, TRACKIO_DIR],
+        show_api=False,
+        show_error=True,
+    )

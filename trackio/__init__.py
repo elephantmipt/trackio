@@ -13,7 +13,7 @@ from trackio.utils import TRACKIO_DIR, TRACKIO_LOGO_PATH
 
 __version__ = Path(__file__).parent.joinpath("version.txt").read_text().strip()
 
-__all__ = ["init", "log", "finish", "show", "import_csv"]
+__all__ = ["init", "log", "log_image", "finish", "show", "import_csv"]
 
 
 config = {}
@@ -122,6 +122,13 @@ def log(metrics: dict) -> None:
     context_vars.current_run.get().log(metrics)
 
 
+def log_image(image) -> None:
+    """Log an image or image path to the current run."""
+    if context_vars.current_run.get() is None:
+        raise RuntimeError("Call trackio.init() before log_image().")
+    context_vars.current_run.get().log_image(image)
+
+
 def finish():
     """
     Finishes the current run.
@@ -144,7 +151,7 @@ def show(project: str | None = None):
         inline=False,
         prevent_thread_lock=True,
         favicon_path=TRACKIO_LOGO_PATH,
-        allowed_paths=[TRACKIO_LOGO_PATH],
+        allowed_paths=[TRACKIO_LOGO_PATH, TRACKIO_DIR],
     )
     base_url = share_url + "/" if share_url else url
     dashboard_url = base_url + f"?project={project}" if project else base_url
