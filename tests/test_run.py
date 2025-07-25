@@ -1,7 +1,10 @@
 from unittest.mock import MagicMock
+import os
 
 import huggingface_hub
 import pytest
+
+import numpy as np
 
 from trackio import Run, init
 
@@ -23,6 +26,33 @@ def test_run_log_calls_client():
         metrics=metrics,
         hf_token=huggingface_hub.utils.get_token(),
     )
+
+
+def test_run_log_image_calls_client():
+    client = DummyClient()
+    run = Run(url="fake_url", project="proj", client=client, name="run1")
+    run.log_image("img.png")
+    client.predict.assert_called_with(
+        api_name="/log_image",
+        project="proj",
+        run="run1",
+        image_path="img.png",
+        hf_token=huggingface_hub.utils.get_token(),
+    )
+
+
+def test_run_log_image_tensor(tmp_path):
+    client = DummyClient()
+    run = Run(url="fake_url", project="proj", client=client, name="run1")
+    arr = np.zeros((1, 2, 2, 3), dtype=np.uint8)
+    run.log_image(arr)
+    kwargs = client.predict.call_args.kwargs
+    assert kwargs["api_name"] == "/log_image"
+    assert kwargs["project"] == "proj"
+    assert kwargs["run"] == "run1"
+    tmp_file = kwargs["image_path"]
+    assert tmp_file.endswith(".png")
+    assert not os.path.exists(tmp_file)
 
 
 def test_init_resume_modes(temp_db):

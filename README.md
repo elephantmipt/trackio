@@ -63,6 +63,9 @@ def simulate_multiple_runs():
                 "val_loss": val_loss,
                 "val_accuracy": val_acc
             })
+
+            if epoch == 0:
+                wandb.log_image("example.png")
     
             time.sleep(0.2)
 
@@ -70,6 +73,11 @@ def simulate_multiple_runs():
 
 simulate_multiple_runs()
 ```
+
+You can also log images using `trackio.log_image()`.
+This function accepts either a file path, a NumPy array, or a PyTorch tensor in
+`NHWC` format. Logged images are shown in the dashboard below the metrics
+plots. Use the **Image step** slider to browse through images across steps.
 
 Running the above will print to the terminal instructions on launching the dashboard.
 

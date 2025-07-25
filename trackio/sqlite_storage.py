@@ -81,8 +81,25 @@ class SQLiteStorage:
                 """)
                 cursor.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS images (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        run_name TEXT NOT NULL,
+                        step INTEGER NOT NULL,
+                        image_path TEXT NOT NULL
+                    )
+                """
+                )
+                cursor.execute(
+                    """
                     CREATE INDEX IF NOT EXISTS idx_metrics_run_step
                     ON metrics(run_name, step)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_images_run_step
+                    ON images(run_name, step)
                     """
                 )
                 conn.commit()
@@ -205,6 +222,42 @@ class SQLiteStorage:
                 conn.commit()
 
     @staticmethod
+    def log_image(project: str, run: str, image_path: str) -> None:
+        """Log an image file for a run and copy it into the Trackio directory."""
+        db_path = SQLiteStorage.init_db(project)
+        dest_dir = TRACKIO_DIR / "images" / project / run
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        with SQLiteStorage.get_scheduler().lock:
+            with SQLiteStorage._get_connection(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT MAX(step) FROM images WHERE run_name = ?",
+                    (run,),
+                )
+                last_step = cursor.fetchone()[0]
+                current_step = 0 if last_step is None else last_step + 1
+
+                dest_path = dest_dir / f"{current_step}_{Path(image_path).name}"
+                shutil.copy(image_path, dest_path)
+
+                current_timestamp = datetime.now().isoformat()
+
+                cursor.execute(
+                    """
+                    INSERT INTO images (timestamp, run_name, step, image_path)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        current_timestamp,
+                        run,
+                        current_step,
+                        str(dest_path.relative_to(TRACKIO_DIR)),
+                    ),
+                )
+                conn.commit()
+
+    @staticmethod
     def get_metrics(project: str, run: str) -> list[dict]:
         """Retrieve metrics for a specific run. The metrics also include the step count (int) and the timestamp (datetime object)."""
         db_path = SQLiteStorage.get_project_db_path(project)
@@ -232,6 +285,28 @@ class SQLiteStorage:
                 results.append(metrics)
 
             return results
+
+    @staticmethod
+    def get_images(project: str, run: str) -> list[dict]:
+        """Retrieve logged images for a specific run."""
+        db_path = SQLiteStorage.get_project_db_path(project)
+        if not db_path.exists():
+            return []
+
+        with SQLiteStorage._get_connection(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT timestamp, step, image_path
+                FROM images
+                WHERE run_name = ?
+                ORDER BY timestamp
+                """,
+                (run,),
+            )
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
 
     @staticmethod
     def get_projects() -> list[str]:

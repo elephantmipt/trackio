@@ -1,12 +1,16 @@
+import io
+import os
 import random
 import re
 import sys
 import time
 from pathlib import Path
+import tempfile
 
 import huggingface_hub
 import numpy as np
 import pandas as pd
+from PIL import Image
 from huggingface_hub.constants import HF_HOME
 
 RESERVED_KEYS = ["project", "run", "timestamp", "step", "time"]
@@ -402,3 +406,35 @@ def downsample(
     downsampled_df = downsampled_df.drop(columns=["bin"], errors="ignore")
 
     return downsampled_df
+
+
+def save_temp_image(image) -> str:
+    """Save a tensor/array/PIL image to a temporary PNG file and return its path."""
+    if isinstance(image, str):
+        return image
+
+    # handle torch without requiring it
+    if "torch" in sys.modules:
+        import torch
+
+        if isinstance(image, torch.Tensor):
+            image = image.detach().cpu().numpy()
+
+    if isinstance(image, np.ndarray):
+        if image.ndim == 4:
+            image = image[0]
+        if image.ndim != 3:
+            raise ValueError("Image array must be HWC or NHWC")
+        if image.dtype != np.uint8:
+            image = np.clip(image, 0, 1)
+            image = (image * 255).astype(np.uint8)
+        pil_img = Image.fromarray(image)
+    elif isinstance(image, Image.Image):
+        pil_img = image
+    else:
+        raise TypeError("Unsupported image type")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    pil_img.save(tmp, format="PNG")
+    tmp.close()
+    return tmp.name

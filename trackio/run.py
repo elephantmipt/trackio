@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from collections import deque
@@ -5,7 +6,7 @@ from collections import deque
 import huggingface_hub
 from gradio_client import Client
 
-from trackio.utils import RESERVED_KEYS, fibo, generate_readable_name
+from trackio.utils import RESERVED_KEYS, fibo, generate_readable_name, save_temp_image
 
 
 class Run:
@@ -39,7 +40,13 @@ class Run:
                     self._client = client
                     if len(self._queued_logs) > 0:
                         for queued_log in self._queued_logs:
+                            temp_path = queued_log.pop("_temp_path", None)
                             self._client.predict(**queued_log)
+                            if temp_path:
+                                try:
+                                    os.remove(temp_path)
+                                except OSError:
+                                    pass
                         self._queued_logs.clear()
                     break
             except Exception:
@@ -78,6 +85,42 @@ class Run:
                     metrics=metrics,
                     hf_token=huggingface_hub.utils.get_token(),
                 )
+
+    def log_image(self, image) -> None:
+        """Log an image file or array for this run."""
+        temp_path = None
+        if isinstance(image, str):
+            image_path = image
+        else:
+            image_path = save_temp_image(image)
+            temp_path = image_path
+
+        with self._client_lock:
+            if self._client is None:
+                self._queued_logs.append(
+                    dict(
+                        api_name="/log_image",
+                        project=self.project,
+                        run=self.name,
+                        image_path=image_path,
+                        hf_token=huggingface_hub.utils.get_token(),
+                        _temp_path=temp_path,
+                    )
+                )
+            else:
+                assert len(self._queued_logs) == 0
+                self._client.predict(
+                    api_name="/log_image",
+                    project=self.project,
+                    run=self.name,
+                    image_path=image_path,
+                    hf_token=huggingface_hub.utils.get_token(),
+                )
+                if temp_path:
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
 
     def finish(self):
         """Cleanup when run is finished."""
